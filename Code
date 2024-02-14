@@ -1,0 +1,169 @@
+#include <ESP8266WiFi.h>
+#include "MD_Parola.h"
+#include "MD_MAX72xx.h"
+#include "SPI.h"
+
+// Define hardware type, size, and output pins:
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define MAX_DEVICES 8
+
+#define CS_PIN 5
+#define DATA_PIN 16
+#define CLK_PIN 4
+
+MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
+MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
+
+// WiFi credentials
+const char* ssid = "SSID";
+const char* password = "PASS";
+
+int displayCount = 0;
+
+// CoinDesk API details
+#define CD_API "/v1/bpi/currentprice/EUR.json"
+const char* CD_URL = "api.coindesk.com";
+
+void setup() {
+  Serial.begin(9600);
+
+  // Intialize the object:
+  myDisplay.begin();
+  // Set the intensity (brightness) of the display (0-15):
+  myDisplay.setIntensity(15);
+  // Clear the display:
+  myDisplay.displayClear();
+
+  myDisplay.setTextAlignment(PA_CENTER);
+  myDisplay.print("Wifi loading");
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(2000);
+    Serial.println("Connecting to WiFi...");
+  }
+
+  Serial.println("Connected to WiFi");
+}
+
+void loop() {
+  // Use WiFiClient class to create TCP connections
+  WiFiClient client;
+
+  if (!client.connect(CD_URL, 80)) {
+    Serial.println("Connection failed");
+    delay(5000);  // Retry after 5 seconds
+    return;
+  }
+
+  // Send HTTP request to fetch Bitcoin price
+  client.print(String("GET ") + CD_API + " HTTP/1.1\r\n" + "Host: " + CD_URL + "\r\n" + "Connection: close\r\n\r\n");
+
+  // Read HTTP response
+  String response;
+  while (client.connected() || client.available()) {
+    if (client.available()) {
+      char c = client.read();
+      response += c;
+    }
+  }
+
+
+  // Extract Bitcoin price from JSON response
+  int priceIndex = response.indexOf("\"rate\":\"");
+  if (priceIndex != -1) {
+    priceIndex += 8;                                        // Move to the beginning of the price value
+    int endPriceIndex = response.indexOf(".", priceIndex);  // Find the decimal point
+    if (endPriceIndex != -1) {
+      // Extract the integer part of the price
+      String priceString = response.substring(priceIndex, endPriceIndex);
+      Serial.println("Bitcoin price: " + priceString);
+      display(priceString, " USD");
+
+      // Extract the EUR rate
+      int eurRateIndex = response.indexOf("\"rate\":\"", endPriceIndex);  // Find the start of the EUR rate
+      if (eurRateIndex != -1) {
+        eurRateIndex += 8;                                          // Move to the beginning of the EUR rate value
+        int endEurRateIndex = response.indexOf(".", eurRateIndex);  // Find the decimal point
+        if (endEurRateIndex != -1) {
+          // Extract the EUR rate string
+          String eurRateString = response.substring(eurRateIndex, endEurRateIndex);
+          Serial.println("EUR rate: " + eurRateString);
+
+          // Display the EUR rate
+          display(eurRateString, " EUR");
+        }
+      }
+    }
+  } else {
+    Serial.println("Failed to fetch Bitcoin price");
+    delay(10000);  // Retry after 10 seconds
+  }
+}
+
+String* pool() {
+  static String poolArr[] = {
+    "HODL",
+    "Freedom",
+    "Escape FIAT",
+    "Hard money",
+    "Self custody",
+    "Revolution",
+    "Ungovernable",
+    "Digital Gold",
+    "Borderless",
+    "21.000.000",  // 10
+    "Fck u money!",
+    "Lazer eyes!"
+  };
+  return poolArr;
+}
+
+void display(String price, String currency) {
+  myDisplay.setIntensity(15);
+  myDisplay.setTextAlignment(PA_CENTER);
+
+  String majorArr[] = { price + currency, "test" };
+
+  // if (displayCount == 2) {  // show anything every x displayed prices
+  //   fadeAnyMajor(majorArr, 1);
+  //   displayCount = 0;
+  // }
+
+  fadeAnyMajor(majorArr, 0);  // show price
+  fadeRandomText();
+
+//  displayCount++;
+}
+
+void fadeAnyMajor(String* majorArr, int arrPos) {
+  fadeIn(arrPos, majorArr, 50);
+  delay(25000);
+  fadeOut(arrPos, majorArr, 50);
+}
+
+void fadeRandomText() {
+  int rnd = random(0, 12);  // list + 1
+  String* arr = pool();
+  fadeIn(rnd, arr, 50);
+  delay(1000);  // wait at max brightness
+  Serial.println(arr[rnd] + " /// " + rnd);
+  fadeOut(rnd, arr, 50);
+}
+
+void fadeIn(int rnd, String* arr, int speed) {
+  for (int i = 0; i <= 15; i++) {
+    myDisplay.setIntensity(i);
+    myDisplay.print(arr[rnd]);
+    delay(speed);
+  }
+}
+
+void fadeOut(int rnd, String* arr, int speed) {
+  for (int i = 15; i >= 0; i--) {
+    myDisplay.setIntensity(i);
+    myDisplay.print(arr[rnd]);
+    delay(speed);
+  }
+}
