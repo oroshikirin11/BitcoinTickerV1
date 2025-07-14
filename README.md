@@ -15,3 +15,6 @@ https://youtu.be/1VW-z4ibMXI?si=a2h0qchLn9lDUmY-&t=256
 
 What is this?
 Have a look here: https://makerworld.com/en/models/186272#profileId-205065
+
+Feel free to send me some sats if you are happy with this project! Not a requirement of course! :-)
+bc1qxkrxp7eynzv7ty59l359gverg2thcq27yz8nug
