@@ -15,7 +15,7 @@
 MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 
-// WiFi credentials
+// WiFi credentials ADD YOUR DATA HERE
 const char* ssid = "X";
 const char* password = "Y";
 
@@ -91,6 +91,35 @@ void loop() {
   
   // Small delay before next cycle
   delay(1000);
+}
+
+// Function to format number with thousand separators
+String formatPrice(String price, char separator) {
+  // Remove any existing separators and whitespace
+  price.trim();
+  
+  // Remove decimal part if present
+  int decimalIndex = price.indexOf(".");
+  if (decimalIndex != -1) {
+    price = price.substring(0, decimalIndex);
+  }
+  
+  // Convert to integer and back to string to ensure it's clean
+  long priceValue = price.toInt();
+  price = String(priceValue);
+  
+  // Add thousand separators
+  String formattedPrice = "";
+  int len = price.length();
+  
+  for (int i = 0; i < len; i++) {
+    if (i > 0 && (len - i) % 3 == 0) {
+      formattedPrice += separator;
+    }
+    formattedPrice += price.charAt(i);
+  }
+  
+  return formattedPrice;
 }
 
 bool fetchBitcoinPrices() {
@@ -215,13 +244,9 @@ bool fetchBitcoinPrices() {
       usdPrice.trim();
       Serial.println("USD Price: " + usdPrice);
       
-      // Format price (remove decimals for display)
-      int decimalIndex = usdPrice.indexOf(".");
-      if (decimalIndex != -1) {
-        usdPrice = usdPrice.substring(0, decimalIndex);
-      }
-      
-      currentUsdPrice = usdPrice;
+      // Format price with comma as thousand separator for USD
+      currentUsdPrice = formatPrice(usdPrice, ',');
+      Serial.println("Formatted USD Price: " + currentUsdPrice);
       success = true;
     }
   }
@@ -237,13 +262,9 @@ bool fetchBitcoinPrices() {
       eurPrice.trim();
       Serial.println("EUR Price: " + eurPrice);
       
-      // Format price (remove decimals for display)
-      int decimalIndex = eurPrice.indexOf(".");
-      if (decimalIndex != -1) {
-        eurPrice = eurPrice.substring(0, decimalIndex);
-      }
-      
-      currentEurPrice = eurPrice;
+      // Format price with dot as thousand separator for EUR
+      currentEurPrice = formatPrice(eurPrice, '.');
+      Serial.println("Formatted EUR Price: " + currentEurPrice);
       success = true;
     }
   }
