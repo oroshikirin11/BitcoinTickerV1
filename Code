@@ -16,17 +16,17 @@ MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DE
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 
 // WiFi credentials
-const char* ssid = "x";
-const char* password = "y";
+const char* ssid = "X";
+const char* password = "Y";
 
 // CoinGecko API - HTTPS required
 const char* API_HOST = "api.coingecko.com";
 const char* API_PATH = "/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur";
 const int API_PORT = 443; // HTTPS port
 
-// Global variables to store the last fetched prices
-String lastUsdPrice = "";
-String lastEurPrice = "";
+// Global variables to store the current prices
+String currentUsdPrice = "";
+String currentEurPrice = "";
 
 void setup() {
   Serial.begin(9600);
@@ -60,9 +60,13 @@ void setup() {
     myDisplay.print("WiFi FAIL");
     delay(5000);
   }
+  
+  // Fetch initial prices
+  fetchBitcoinPrices();
 }
 
 void loop() {
+  // Check WiFi connection
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected, reconnecting...");
     myDisplay.print("WiFi Lost");
@@ -70,12 +74,32 @@ void loop() {
     return;
   }
 
+  // Main display cycle: USD -> TEXT -> EUR -> TEXT -> FETCH -> REPEAT
+  
+  // 1. Show USD price
+  if (currentUsdPrice != "") {
+    display(currentUsdPrice, " USD");
+  }
+  
+  // 2. Show EUR price  
+  if (currentEurPrice != "") {
+    display(currentEurPrice, " EUR");
+  }
+  
+  // 3. Fetch fresh data for next cycle
+  fetchBitcoinPrices();
+  
+  // Small delay before next cycle
+  delay(1000);
+}
+
+bool fetchBitcoinPrices() {
   Serial.println("Fetching Bitcoin price...");
-  myDisplay.print("Loading...");
+   myDisplay.print("");
   
   // Use WiFiClientSecure for HTTPS connections
   WiFiClientSecure client;
-  client.setInsecure(); // Skip certificate verification (not recommended for production)
+  client.setInsecure(); // Skip certificate verification
   
   Serial.print("Connecting to: ");
   Serial.println(API_HOST);
@@ -84,8 +108,8 @@ void loop() {
   if (!client.connect(API_HOST, API_PORT)) {
     Serial.println("Connection to API failed");
     myDisplay.print("API FAIL");
-    delay(10000);
-    return;
+    delay(3000);
+    return false;
   }
   
   Serial.println("Connected! Sending request...");
@@ -103,8 +127,8 @@ void loop() {
       Serial.println("Client timeout!");
       client.stop();
       myDisplay.print("Timeout");
-      delay(10000);
-      return;
+      // delay(3000);
+      return false;
     }
   }
 
@@ -115,9 +139,18 @@ void loop() {
     fullResponse += c;
   }
   
-  Serial.println("=== FULL RESPONSE START ===");
-  Serial.println(fullResponse);
-  Serial.println("=== FULL RESPONSE END ===");
+  // Serial.println("=== FULL RESPONSE START ===");
+  // Serial.println(fullResponse);
+  // Serial.println("=== FULL RESPONSE END ===");
+  
+  // Check for rate limit response
+  if (fullResponse.indexOf("429") != -1 || fullResponse.indexOf("Too Many Requests") != -1) {
+    Serial.println("Rate limited! Waiting longer...");
+    myDisplay.print("Rate Limit");
+    delay(5000);
+    client.stop();
+    return false;
+  }
   
   // Find where the JSON body starts (after double newline)
   int bodyStart = fullResponse.indexOf("\r\n\r\n");
@@ -133,28 +166,31 @@ void loop() {
   } else {
     Serial.println("Could not find response body!");
     myDisplay.print("No Body");
-    delay(10000);
-    return;
+    delay(3000);
+    client.stop();
+    return false;
   }
   
   // Parse the JSON response
   // CoinGecko returns: {"bitcoin":{"usd":45000,"eur":41000}}
   
-  // First, let's see what we actually got
-  Serial.print("Response length: ");
-  Serial.println(response.length());
-  Serial.print("Looking for 'bitcoin' in response: ");
-  Serial.println(response.indexOf("bitcoin"));
+  // Serial.print("Response length: ");
+  // Serial.println(response.length());
+  // Serial.print("Looking for 'bitcoin' in response: ");
+  // Serial.println(response.indexOf("bitcoin"));
   
   // Check if we got a valid JSON response
   if (response.indexOf("{") == -1) {
     Serial.println("No JSON found in response");
     myDisplay.print("No JSON");
-    delay(10000);
-    return;
+    delay(3000);
+    client.stop();
+    return false;
   }
   
-  // Extract USD price - try different approaches
+  bool success = false;
+  
+  // Extract USD price
   int usdIndex = response.indexOf("\"usd\":");
   Serial.print("USD index: ");
   Serial.println(usdIndex);
@@ -166,6 +202,7 @@ void loop() {
     Serial.print("Alternative USD index: ");
     Serial.println(usdIndex);
   }
+  
   if (usdIndex != -1) {
     usdIndex += 6; // Move past "usd":
     int usdEndIndex = response.indexOf(",", usdIndex);
@@ -184,7 +221,8 @@ void loop() {
         usdPrice = usdPrice.substring(0, decimalIndex);
       }
       
-      lastUsdPrice = usdPrice;
+      currentUsdPrice = usdPrice;
+      success = true;
     }
   }
   
@@ -205,47 +243,24 @@ void loop() {
         eurPrice = eurPrice.substring(0, decimalIndex);
       }
       
-      lastEurPrice = eurPrice;
+      currentEurPrice = eurPrice;
+      success = true;
     }
-  }
-  
-  if (usdIndex == -1 && eurIndex == -1) {
-    Serial.println("Failed to parse price data");
-    myDisplay.print("Parse Error");
-    delay(10000);
   }
   
   client.stop();
   
-  // Show the prices in a continuous loop until next API call
-  if (lastUsdPrice != "" || lastEurPrice != "") {
-    showPricesLoop();
+  if (!success) {
+    Serial.println("Failed to parse price data");
+    myDisplay.print("Parse Error");
+    delay(3000);
+    return false;
   }
   
-  // Wait 5 minutes before next request (CoinGecko free tier allows 30 calls/min)
-  delay(300000); // 5 minutes = 300,000ms
-}
-
-void showPricesLoop() {
-  // Calculate how many cycles we can do in 5 minutes
-  // Each cycle takes about 60 seconds (25s USD + 25s EUR + 10s transition)
-  unsigned long startTime = millis();
-  unsigned long fiveMinutes = 300000; // 5 minutes in milliseconds
+  // Add a small delay to respect rate limits (about 12 calls per minute max)
+  //delay(5000);
   
-  while (millis() - startTime < fiveMinutes) {
-    // Show USD price
-    if (lastUsdPrice != "") {
-      display(lastUsdPrice, " USD");
-    }
-    
-    // Show EUR price
-    if (lastEurPrice != "") {
-      display(lastEurPrice, " EUR");
-    }
-    
-    // Add a small delay between cycles
-    delay(2000);
-  }
+  return true;
 }
 
 String* pool() {
@@ -317,9 +332,6 @@ void fadeRandomText() {
   delay(1000);
   Serial.println(arr[rnd] + " /// " + rnd);
   fadeOut(rnd, arr, 50);
-  
-  // Don't clear the display here - let the main loop handle it
-  // This was causing the black screen issue
 }
 
 static int lastRandomNumbers[3] = {-1, -1, -1};
